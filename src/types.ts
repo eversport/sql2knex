@@ -1,0 +1,48 @@
+export type ColumnType =
+  | { type: "increments" }
+  | { type: "boolean" }
+  | { type: "decimal"; precision: [number, number] }
+  | { type: "integer"; unsigned: boolean }
+  | { type: "bigInteger"; unsigned: boolean }
+  | { type: "float" }
+  | { type: "date" }
+  | { type: "dateTime" }
+  | { type: "string"; length: number }
+  | { type: "text" }
+  | { type: "enum"; cases: Array<string> }
+  | { type: "custom"; custom: string };
+
+export type Column = {
+  name: string;
+  type: ColumnType;
+  nullable: boolean;
+  default: string;
+  onUpdate: string;
+};
+
+export enum IndexType {
+  Primary,
+  Unique,
+  Index,
+  FullText,
+}
+
+export type Index = {
+  columns: Array<string>;
+  type: IndexType;
+};
+
+export type ForeignKey = {
+  columns: Array<string>;
+  foreignTable: string;
+  foreignColumns: Array<string>;
+  onUpdate: string;
+  onDelete: string;
+};
+
+export type Table = {
+  name: string;
+  columns: Array<Column>;
+  indices: Array<Index>;
+  foreignKeys: Array<ForeignKey>;
+};

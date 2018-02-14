@@ -1,0 +1,16 @@
+{
+  "name": "sql2knex",
+  "version": "1.0.0",
+  "description": "Generate knex DDL code from a live database",
+  "author": "Arpad Borsos <arpad.borsos@eversports.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/knex": "^0.14.5",
+    "mysql": "^2.15.0",
+    "ts-node": "^4.1.0",
+    "typescript": "^2.7.1"
+  },
+  "dependencies": {
+    "knex": "^0.14.3"
+  }
+}
