@@ -21,10 +21,16 @@ export type Column = {
 };
 
 export enum IndexType {
-  Primary,
-  Unique,
-  Index,
-  FullText,
+  Primary = "primary",
+  Unique = "unique",
+  Index = "index",
+  FullText = "fulltext",
+}
+export const IndexTypeSort = {
+  [IndexType.Primary]: 0,
+  [IndexType.Unique]: 1,
+  [IndexType.Index]: 2,
+  [IndexType.FullText]: 3,
 }
 
 export type Index = {

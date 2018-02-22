@@ -1,23 +1,12 @@
-import { IndexType, Table } from "./types";
-
-// both postgres and mysql have something like 64 here…
-const MaxKeyNameLength = 60;
-const longIndexNames = new Map<string, number>();
-
-function generateIndexName(prefix: string, table: string, columns: Array<string>) {
-  let idxName = `${prefix}_${table}_${columns.join("_")}`;
-  if (idxName.length > MaxKeyNameLength) {
-    idxName = idxName.substr(0, MaxKeyNameLength);
-    longIndexNames.set(idxName, (longIndexNames.get(idxName) || 0) + 1);
-    idxName += longIndexNames.get(idxName);
-  }
-  return idxName;
-}
+import { IndexType, Column, Table } from "./types";
 
 function generateCreateTable(table: Table): string {
   let code = `knex.schema.createTable(${JSON.stringify(table.name)}, t => {\n`;
 
   for (const c of table.columns) {
+    if (c.onUpdate) {
+      continue;
+    }
     const name = JSON.stringify(c.name);
     code += "  t";
     let { type } = c;
@@ -49,90 +38,96 @@ function generateCreateTable(table: Table): string {
     code += ";\n";
   }
 
-  code += "\n";
-
-  for (const i of table.indices) {
-    if (i.type === IndexType.FullText) {
-      continue;
-    }
-    const fn =
-      i.type === IndexType.Primary ? "primary" : i.type === IndexType.Unique ? "unique" : "index";
-    const idxName = generateIndexName(
-      i.type === IndexType.Unique ? "uq" : "ix",
-      table.name,
-      i.columns,
-    );
-    const columns = JSON.stringify(i.columns);
-    code += `  t.${fn}(${columns}, "${idxName}");\n`;
-  }
-
   code += `})`;
   return code;
 }
 
-function generateForeignKeys(table: Table): string | null {
-  if (!table.foreignKeys.length) {
-    return null;
-  }
-  let code = `knex.schema.alterTable(${JSON.stringify(table.name)}, t => {\n`;
-  for (const f of table.foreignKeys) {
-    const idxName = generateIndexName("fk", table.name, f.columns);
-    const columns = JSON.stringify(f.columns);
-    const foreignTable = JSON.stringify(f.foreignTable);
-    const foreignColumns = JSON.stringify(f.foreignColumns);
-    const onUpdate = JSON.stringify(f.onUpdate);
-    const onDelete = JSON.stringify(f.onDelete);
-    code += `  t.foreign(${columns}, "${idxName}").references(${foreignColumns}).inTable(${foreignTable}).onUpdate(${onUpdate}).onDelete(${onDelete});\n`;
-  }
-  code += `})`;
-  return code;
-}
+const IndexTypeMap = {
+  [IndexType.Primary]: "primary",
+  [IndexType.Index]: "index",
+  [IndexType.FullText]: "fulltext",
+  [IndexType.Unique]: "unique",
+};
 
-function generateRawStatements(table: Table): Array<string> {
-  const statements: Array<string> = [];
+export function generateDbMetadata(tables: Array<Table>) {
+  const creates = [];
+  const onUpdates = [];
+  const indices = [];
+  const foreigns = [];
 
-  // generate a raw statement for `datetime` columns with `ON UPDATE CURRENT_TIMESTAMP`
-  for (const c of table.columns) {
-    if (c.type.type === "dateTime" && c.onUpdate === "CURRENT_TIMESTAMP") {
-      statements.push(
-        `knex.raw("ALTER TABLE \`${table.name}\` CHANGE \`${c.name}\` \`${
-          c.name
-        }\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")`,
-      );
+  const idKeysMap = new Map<string, Set<string>>();
+  function recordId(table: string, column: string) {
+    const keys = idKeysMap.get(table);
+    if (keys) {
+      keys.add(column);
+    } else {
+      idKeysMap.set(table, new Set([column]));
     }
   }
 
-  // generate a raw statement for `FULLTEXT` indices
-  for (const i of table.indices) {
-    if (i.type === IndexType.FullText) {
-      const idxName = generateIndexName("ft", table.name, i.columns);
-      const cols = i.columns.join(", ");
-      statements.push(
-        `knex.raw("ALTER TABLE \`${table.name}\` ADD FULLTEXT INDEX \`${idxName}\`(${cols})")`,
-      );
+  const tablesByName = new Map<string, Table>();
+  for (const t of tables) {
+    const table = t.name;
+    tablesByName.set(table, t);
+
+    creates.push(`knex => ${generateCreateTable(t)}`);
+
+    for (const i of t.indices) {
+      indices.push({
+        table,
+        type: IndexTypeMap[i.type],
+        columns: i.columns,
+      });
+    }
+
+    for (const f of t.foreignKeys) {
+      const { foreignTable, onDelete, onUpdate } = f;
+      const column = f.columns[0];
+      const foreignColumn = f.foreignColumns[0];
+      recordId(table, column);
+      recordId(foreignTable, foreignColumn);
+      foreigns.push({
+        table,
+        column,
+        foreignTable,
+        foreignColumn,
+        onDelete,
+        onUpdate,
+      });
+    }
+
+    for (const c of t.columns) {
+      if (c.type.type === "increments") {
+        recordId(table, c.name);
+      }
+      if (c.type.type === "dateTime" && c.onUpdate === "CURRENT_TIMESTAMP") {
+        onUpdates.push({
+          table,
+          column: c.name,
+        });
+      }
     }
   }
 
-  return statements;
-}
-
-export function generateKnexCode(tables: Array<Table>): string {
-  const statements: Array<string> = [];
-  // first, generate the create table statements
-  for (const t of tables) {
-    statements.push(generateCreateTable(t));
-  }
-  // then generate the foreign keys, so we don’t get errors
-  for (const t of tables) {
-    const stmt = generateForeignKeys(t);
-    if (stmt) {
-      statements.push(stmt);
+  const idKeys = [];
+  for (const [tableName, columnNames] of idKeysMap) {
+    const table = tablesByName.get(tableName) as Table;
+    for (const column of columnNames) {
+      const definition = table.columns.find(c => c.name === column) as Column;
+      idKeys.push({
+        table: tableName,
+        column,
+        nullable: definition.nullable,
+        auto: definition.type.type === "increments",
+      });
     }
   }
-  // and lastly generate some mysql specific things that might not be doable in other database systems
-  for (const t of tables) {
-    statements.push(...generateRawStatements(t));
-  }
 
-  return `const statements = [${statements.map(stmt => `() => ${stmt}`).join(",\n")}];`;
+  return {
+    creates,
+    onUpdates,
+    indices,
+    foreigns,
+    idKeys,
+  };
 }

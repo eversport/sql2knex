@@ -39,23 +39,33 @@ export function validateTables(tables: Array<Table>) {
 
 export function validateIndices(table: Table) {
   const { name, indices } = table;
-  const hasIncrements = table.columns.some(c => c.type.type === "increments");
+  const increments = table.columns.find(c => c.type.type === "increments");
 
   // warn and remove duplicate indices
   const indicesByColumn = new Set<string>();
   for (let i = 0; i < indices.length; i++) {
-    const { columns, type } = indices[i];
+    const index = indices[i];
+    const { columns, type } = index;
     // remove primary key if we have a `increments` column
-    if (type === IndexType.Primary && hasIncrements) {
+    if (type === IndexType.Primary && increments) {
+      let convertedToUnique = false;
       if (columns.length > 1) {
         console.warn(
           `Removing compound primary key \`${name}(${columns.join(
             ", ",
           )})\` because we have an AUTO_INCREMENT column`,
         );
+        const primaryIndex = columns.findIndex(col => col === increments.name);
+        if (primaryIndex >= 0) {
+          columns.splice(primaryIndex, 1);
+          index.type = IndexType.Unique;
+          convertedToUnique = true;
+        }
       }
-      indices.splice(i, 1);
-      i--;
+      if (!convertedToUnique) {
+        indices.splice(i, 1);
+        i--;
+      }
     }
     if (columns.length > 1 || type === IndexType.FullText) {
       continue;

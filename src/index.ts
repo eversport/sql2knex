@@ -1,7 +1,8 @@
 import Knex from "knex";
 import { getAllTables } from "./mysql";
-import { generateKnexCode } from "./generate";
 import { validateTables } from "./validate";
+import sort from "./toposort";
+// import { generateDbMetadata } from "./generate";
 
 const knex = Knex({
   client: "mysql",
@@ -11,15 +12,25 @@ const knex = Knex({
 });
 
 async function main(database: string) {
-  const tables = await getAllTables(database, knex);
-  validateTables(tables)
-  const code = generateKnexCode(tables);
-  console.log(code);
-  // const run = new Function(`return (async knex => {${code}})`)();
-  // return run(knex)
+  let tables = await getAllTables(database, knex);
+  validateTables(tables);
+  const sorted = sort(tables, {
+    key(t) {
+      return t.name;
+    },
+    dependencies(t) {
+      return t.foreignKeys.map(f => f.foreignTable);
+    },
+  });
+  for (const error of sorted.errors) {
+    console.error(error)
+  }
+  tables = sorted.sorted;
+
+  console.log(JSON.stringify(tables));
 }
 
-main("schematest").then(
+main("schematest2").then(
   () => process.exit(),
   (err: Error) => {
     console.error(err);

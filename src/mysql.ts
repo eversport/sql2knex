@@ -1,5 +1,5 @@
 import Knex from "knex";
-import { IndexType, Table, Index, Column, ForeignKey, ColumnType } from "./types";
+import { IndexType, Table, Index, Column, ForeignKey, ColumnType, IndexTypeSort } from "./types";
 
 export async function getAllTables(database: string, knex: Knex): Promise<Array<Table>> {
   const tableNames: Array<string> = await knex
@@ -109,7 +109,7 @@ async function getIndices(database: string, table: string, knex: Knex): Promise<
   const indices = [...indicesByName.values()];
 
   // sort indices: Primary -> Unique -> Index
-  indices.sort(({ type: a }, { type: b }) => a - b);
+  indices.sort(({ type: a }, { type: b }) => IndexTypeSort[a] - IndexTypeSort[b]);
 
   return indices;
 }
