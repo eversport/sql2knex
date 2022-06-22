@@ -1,5 +1,6 @@
 export type ColumnType =
   | { type: "increments" }
+  | { type: "json" }
   | { type: "boolean" }
   | { type: "decimal"; precision: [number, number] }
   | { type: "integer"; unsigned: boolean }
@@ -16,8 +17,9 @@ export type Column = {
   name: string;
   type: ColumnType;
   nullable: boolean;
-  default: string;
+  default: string | null
   onUpdate: string;
+  comment: string;
 };
 
 export enum IndexType {

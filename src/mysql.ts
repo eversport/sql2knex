@@ -1,12 +1,13 @@
 import Knex from "knex";
 import { IndexType, Table, Index, Column, ForeignKey, ColumnType, IndexTypeSort } from "./types";
 
-export async function getAllTables(database: string, knex: Knex): Promise<Array<Table>> {
+export async function getAllTables(database: string, knex: Knex, exclude: Array<string>): Promise<Array<Table>> {
   const tableNames: Array<string> = await knex
-    .select("table_name")
+    .select("TABLE_NAME as table_name")
     .from("information_schema.tables")
     .pluck("table_name")
-    .where({ table_schema: database, table_type: "base table" });
+    .where({ table_schema: database, table_type: "BASE TABLE" })
+    .whereNotIn('table_name', exclude)
   return Promise.all(tableNames.map(name => getTable(database, name, knex)));
 }
 
@@ -27,15 +28,17 @@ function enumCases(string: string): Array<string> {
 async function getColumns(database: string, table: string, knex: Knex): Promise<Array<Column>> {
   const columns: Array<any> = await knex
     .select(
-      "column_name",
-      "is_nullable",
-      "column_default",
-      "data_type",
-      "character_maximum_length",
-      "numeric_precision",
-      "numeric_scale",
-      "column_type",
-      "extra",
+      "COLUMN_NAME as column_name",
+      "IS_NULLABLE as is_nullable",
+      "COLUMN_DEFAULT as column_default",
+      "COLUMN_COMMENT as column_comment",
+      "DATA_TYPE as data_type",
+      "CHARACTER_MAXIMUM_LENGTH as character_maximum_length",
+      "NUMERIC_PRECISION as numeric_precision",
+      "NUMERIC_SCALE as numeric_scale",
+      "COLUMN_TYPE as column_type",
+      "EXTRA as extra",
+      "COLLATION_NAME as collation_name",
     )
     .from("information_schema.columns")
     .where({ table_schema: database, table_name: table });
@@ -43,12 +46,12 @@ async function getColumns(database: string, table: string, knex: Knex): Promise<
   return columns.map(col => {
     let type: ColumnType = { type: "custom", custom: col.column_type };
     let onUpdate = "";
-    let colDefault: string = col.column_default;
+    let colDefault: string | null = col.column_default;
     if (col.extra === "auto_increment") {
       type = { type: "increments" };
     } else if (col.column_type === "tinyint(1)") {
       type = { type: "boolean" };
-      colDefault = colDefault === "0" ? "false" : "true";
+      colDefault = colDefault === "0" ? "false" : colDefault === "1" ? "true" : null
     } else if (col.data_type === "varchar") {
       type = { type: "string", length: col.character_maximum_length };
     } else if (col.column_type === "text") {
@@ -67,23 +70,30 @@ async function getColumns(database: string, table: string, knex: Knex): Promise<
       type = { type: "bigInteger", unsigned: col.column_type.includes("unsigned") };
     } else if (col.data_type === "enum") {
       type = { type: "enum", cases: enumCases(col.column_type) };
+    } else if (col.data_type === "json") {
+      type = { type: "json"  };
     }
-    if (col.extra.startsWith("on update ")) {
-      onUpdate = col.extra.slice("on update ".length);
+    const onUpdateToken = 'on update '
+    const onUpdateIndex =  col.extra ? col.extra.toLowerCase().indexOf(onUpdateToken) : -1
+    if (onUpdateIndex >= 0) {
+      onUpdate = col.extra.slice(onUpdateIndex + onUpdateToken.length, col.extra.length)
     }
+
     return {
       name: col.column_name,
       type,
       nullable: col.is_nullable === "YES",
       default: colDefault,
       onUpdate,
+      comment: col.column_comment,
+      collate: col.collation_name,
     };
   });
 }
 
 async function getIndices(database: string, table: string, knex: Knex): Promise<Array<Index>> {
   const dbIndices: Array<any> = await knex
-    .select("index_name", "column_name", "non_unique", "index_type")
+    .select("INDEX_NAME as index_name", "COLUMN_NAME as column_name", "NON_UNIQUE as non_unique", "INDEX_TYPE as index_type")
     .from("information_schema.statistics")
     .orderBy("seq_in_index")
     .where({ table_schema: database, table_name: table });
@@ -121,12 +131,12 @@ async function getForeignKeys(
 ): Promise<Array<ForeignKey>> {
   const dbConstraints: Array<any> = await knex
     .select(
-      "rc.constraint_name",
-      "update_rule",
-      "delete_rule",
-      "rc.referenced_table_name",
-      "column_name",
-      "referenced_column_name",
+      "rc.CONSTRAINT_NAME as constraint_name",
+      "UPDATE_RULE as update_rule",
+      "DELETE_RULE as delete_rule",
+      "rc.REFERENCED_TABLE_NAME as referenced_table_name",
+      "COLUMN_NAME as column_name",
+      "REFERENCED_COLUMN_NAME as referenced_column_name",
     )
     .from("information_schema.referential_constraints AS rc")
     .join("information_schema.key_column_usage AS kcu", j => {
