@@ -17,7 +17,7 @@ export type Column = {
   name: string;
   type: ColumnType;
   nullable: boolean;
-  default: string | null
+  default: string | boolean | number | null
   onUpdate: string;
   comment: string;
 };

@@ -46,12 +46,12 @@ async function getColumns(database: string, table: string, knex: Knex): Promise<
   return columns.map(col => {
     let type: ColumnType = { type: "custom", custom: col.column_type };
     let onUpdate = "";
-    let colDefault: string | null = col.column_default;
+    let colDefault: string | boolean | number | null = col.column_default;
     if (col.extra === "auto_increment") {
       type = { type: "increments" };
     } else if (col.column_type === "tinyint(1)") {
       type = { type: "boolean" };
-      colDefault = colDefault === "0" ? "false" : colDefault === "1" ? "true" : null
+      colDefault = colDefault === "0" ? 0 : colDefault === "1" ? 1 : null
     } else if (col.data_type === "varchar") {
       type = { type: "string", length: col.character_maximum_length };
     } else if (col.column_type === "text") {
